@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Modality, GenerateContentResponse } from "@google/genai";
 
@@ -98,6 +98,39 @@ const ImageUploader = ({ onFilesSelect, multiple = false, promptText }: { onFile
   );
 };
 
+const ImagePreviewModal = ({ imageUrl, onClose }: { imageUrl: string; onClose: () => void; }) => {
+    if (!imageUrl) return null;
+
+    const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+        if (e.target === e.currentTarget) {
+            onClose();
+        }
+    };
+
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                onClose();
+            }
+        };
+        document.body.style.overflow = 'hidden';
+        window.addEventListener('keydown', handleKeyDown);
+        return () => {
+            document.body.style.overflow = 'auto';
+            window.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [onClose]);
+
+    return (
+        <div className="modal-backdrop" onClick={handleBackdropClick} role="dialog" aria-modal="true" aria-labelledby="image-preview-title">
+            <div className="modal-content">
+                <h2 id="image-preview-title" className="visually-hidden">Enlarged Image Preview</h2>
+                <img src={imageUrl} alt="Enlarged preview" />
+                <button onClick={onClose} className="modal-close-btn" aria-label="Close image preview">&times;</button>
+            </div>
+        </div>
+    );
+};
 
 const TextToImage = () => {
     const [prompt, setPrompt] = useState('');
@@ -105,6 +138,7 @@ const TextToImage = () => {
     const [loading, setLoading] = useState(false);
     const [results, setResults] = useState<string[]>([]);
     const [error, setError] = useState<string | null>(null);
+    const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
     const handleSubmit = async () => {
         if (!prompt) {
@@ -132,47 +166,50 @@ const TextToImage = () => {
     };
     
     return (
-        <div className="panel-container">
-            <div className="input-panel">
-                <h2>文生图</h2>
-                <div className="form-group">
-                    <label htmlFor="text-prompt">提示词</label>
-                    <textarea id="text-prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="输入详细的商品描述，例如：'一个红色丝绸背景下的高端护肤品瓶子，光线柔和'" />
+        <>
+            <div className="panel-container">
+                <div className="input-panel">
+                    <h2>文生图</h2>
+                    <div className="form-group">
+                        <label htmlFor="text-prompt">提示词</label>
+                        <textarea id="text-prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="输入详细的商品描述，例如：'一个红色丝绸背景下的高端护肤品瓶子，光线柔和'" />
+                    </div>
+                    <div className="form-group">
+                        <label htmlFor="text-batch-count">生成数量</label>
+                        <input
+                            id="text-batch-count"
+                            type="number"
+                            value={batchCount}
+                            onChange={(e) => setBatchCount(Math.max(1, Math.min(4, parseInt(e.target.value, 10) || 1)))}
+                            min="1"
+                            max="4"
+                        />
+                    </div>
+                    <button className="btn" onClick={handleSubmit} disabled={loading || !prompt}>
+                        {loading ? <Loader/> : '生成图片'}
+                    </button>
+                    {error && <p className="error-message">{error}</p>}
                 </div>
-                <div className="form-group">
-                    <label htmlFor="text-batch-count">生成数量</label>
-                    <input
-                        id="text-batch-count"
-                        type="number"
-                        value={batchCount}
-                        onChange={(e) => setBatchCount(Math.max(1, Math.min(4, parseInt(e.target.value, 10) || 1)))}
-                        min="1"
-                        max="4"
-                    />
+                <div className="output-panel">
+                    <h2>生成结果</h2>
+                    <div className="placeholder">
+                        {loading && <Loader />}
+                        {!loading && results.length > 0 && (
+                            <div className="result-grid">
+                                {results.map((src, index) => (
+                                    <div key={index} className="result-item" onClick={() => setSelectedImage(src)} role="button" tabIndex={0} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setSelectedImage(src)} title="Click to enlarge">
+                                        <img src={src} alt={`Generated image ${index + 1}`} />
+                                        <DownloadButton imageUrl={src} filename={`generated-image-${index + 1}.png`} />
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        {!loading && results.length === 0 && <p>生成的图片将显示在这里</p>}
+                    </div>
                 </div>
-                <button className="btn" onClick={handleSubmit} disabled={loading || !prompt}>
-                    {loading ? <Loader/> : '生成图片'}
-                </button>
-                {error && <p className="error-message">{error}</p>}
             </div>
-            <div className="output-panel">
-                <h2>生成结果</h2>
-                <div className="placeholder">
-                    {loading && <Loader />}
-                    {!loading && results.length > 0 && (
-                        <div className="result-grid">
-                            {results.map((src, index) => (
-                                <div key={index} className="result-item">
-                                    <img src={src} alt={`Generated image ${index + 1}`} />
-                                    <DownloadButton imageUrl={src} filename={`generated-image-${index + 1}.png`} />
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                    {!loading && results.length === 0 && <p>生成的图片将显示在这里</p>}
-                </div>
-            </div>
-        </div>
+            {selectedImage && <ImagePreviewModal imageUrl={selectedImage} onClose={() => setSelectedImage(null)} />}
+        </>
     );
 };
 
@@ -183,6 +220,7 @@ const ImageProcessor = ({ mode }: { mode: 'image-to-image' | 'image-edit' | 'ima
     const [loading, setLoading] = useState(false);
     const [results, setResults] = useState<string[]>([]);
     const [error, setError] = useState<string | null>(null);
+    const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
     const { title, promptLabel, promptPlaceholder, uploaderPrompt, buttonText, multipleFiles } = useMemo(() => {
         switch (mode) {
@@ -295,63 +333,66 @@ const ImageProcessor = ({ mode }: { mode: 'image-to-image' | 'image-edit' | 'ima
     const isButtonDisabled = loading || files.length === 0 || (!prompt && (mode === 'image-edit' || mode === 'image-compose'));
     
     return (
-        <div className="panel-container">
-            <div className="input-panel">
-                <h2>{title}</h2>
-                <div className="form-group">
-                    <label>上传图片</label>
-                    <ImageUploader onFilesSelect={handleFilesSelect} multiple={multipleFiles} promptText={uploaderPrompt} />
-                    {files.length > 0 && (
-                        <div className="preview-grid">
-                            {files.map((file, index) => (
-                                <div key={index} className="preview-item">
-                                    <img src={URL.createObjectURL(file)} alt={`Preview ${index + 1}`} />
-                                    <button className="close-btn" onClick={() => handleRemoveFile(index)} aria-label={`Remove image ${index + 1}`}>&times;</button>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-                 <div className="form-group">
-                    <label htmlFor="image-prompt">{promptLabel}</label>
-                    <textarea id="image-prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={promptPlaceholder} />
-                </div>
-                {(mode === 'image-compose' || mode === 'image-to-image') && (
+        <>
+            <div className="panel-container">
+                <div className="input-panel">
+                    <h2>{title}</h2>
                     <div className="form-group">
-                        <label htmlFor="batch-count">生成数量</label>
-                        <input
-                            id="batch-count"
-                            type="number"
-                            value={batchCount}
-                            onChange={(e) => setBatchCount(Math.max(1, Math.min(4, parseInt(e.target.value, 10) || 1)))}
-                            min="1"
-                            max="4"
-                        />
+                        <label>上传图片</label>
+                        <ImageUploader onFilesSelect={handleFilesSelect} multiple={multipleFiles} promptText={uploaderPrompt} />
+                        {files.length > 0 && (
+                            <div className="preview-grid">
+                                {files.map((file, index) => (
+                                    <div key={index} className="preview-item">
+                                        <img src={URL.createObjectURL(file)} alt={`Preview ${index + 1}`} />
+                                        <button className="close-btn" onClick={() => handleRemoveFile(index)} aria-label={`Remove image ${index + 1}`}>&times;</button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
-                )}
-                <button className="btn" onClick={handleSubmit} disabled={isButtonDisabled}>
-                    {loading ? <Loader/> : buttonText}
-                </button>
-                {error && <p className="error-message">{error}</p>}
-            </div>
-            <div className="output-panel">
-                <h2>生成结果</h2>
-                <div className="placeholder">
-                    {loading && <Loader />}
-                    {!loading && results.length > 0 && (
-                        <div className="result-grid">
-                           {results.map((src, index) => (
-                                <div key={index} className="result-item">
-                                    <img src={src} alt={`Processed image ${index + 1}`} />
-                                    <DownloadButton imageUrl={src} filename={`processed-image-${index + 1}.png`} />
-                                </div>
-                           ))}
+                     <div className="form-group">
+                        <label htmlFor="image-prompt">{promptLabel}</label>
+                        <textarea id="image-prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={promptPlaceholder} />
+                    </div>
+                    {(mode === 'image-compose' || mode === 'image-to-image') && (
+                        <div className="form-group">
+                            <label htmlFor="batch-count">生成数量</label>
+                            <input
+                                id="batch-count"
+                                type="number"
+                                value={batchCount}
+                                onChange={(e) => setBatchCount(Math.max(1, Math.min(4, parseInt(e.target.value, 10) || 1)))}
+                                min="1"
+                                max="4"
+                            />
                         </div>
                     )}
-                    {!loading && results.length === 0 && <p>处理后的图片将显示在这里</p>}
+                    <button className="btn" onClick={handleSubmit} disabled={isButtonDisabled}>
+                        {loading ? <Loader/> : buttonText}
+                    </button>
+                    {error && <p className="error-message">{error}</p>}
+                </div>
+                <div className="output-panel">
+                    <h2>生成结果</h2>
+                    <div className="placeholder">
+                        {loading && <Loader />}
+                        {!loading && results.length > 0 && (
+                            <div className="result-grid">
+                               {results.map((src, index) => (
+                                    <div key={index} className="result-item" onClick={() => setSelectedImage(src)} role="button" tabIndex={0} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setSelectedImage(src)} title="Click to enlarge">
+                                        <img src={src} alt={`Processed image ${index + 1}`} />
+                                        <DownloadButton imageUrl={src} filename={`processed-image-${index + 1}.png`} />
+                                    </div>
+                               ))}
+                            </div>
+                        )}
+                        {!loading && results.length === 0 && <p>处理后的图片将显示在这里</p>}
+                    </div>
                 </div>
             </div>
-        </div>
+            {selectedImage && <ImagePreviewModal imageUrl={selectedImage} onClose={() => setSelectedImage(null)} />}
+        </>
     )
 };
 
